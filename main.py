@@ -1,3 +1,6 @@
+import random
+
+from deap import creator, base, tools, algorithms
 import numpy as np
 import tensorflow as tf
 import keras
@@ -12,6 +15,9 @@ class Model:
         self._is_fashion_mnist = True
         self._model = self._load_model()
         self._data = self._load_data()
+
+    def run(self):
+        self._run_evolution()
 
     def _load_model(self):
         return load_model(self._pretrained_model_path)
@@ -55,11 +61,11 @@ class Model:
 
     def _eval_evolution(self, individual, score_idx):
         individual_model = self._individual2model(individual)
-        scores = individual_model.evaluate(self._data['x_test'], self._data['_y_test'], verbose=0)
+        scores = individual_model.evaluate(self._data['x_train'], self._data['_y_train'], verbose=0)
+        # NOTE: Maybe we want to improve on validation and not train.
         return scores[score_idx]
 
     def _individual2model(self, individual):
-        pass
         # TODO: Create a model with neurons working according to the neurons map in `individual` (list of logicals)
         layer_shapes = []
         layer_num_neurons = []
@@ -69,10 +75,37 @@ class Model:
             layer_num_neurons.append(np.prod(shape))
         assert len(individual) == np.sum(layer_num_neurons)
 
+    def _run_evolution(self):
+        creator.create("FitnessMax", base.Fitness, weights=(1.0,))
+        creator.create("Individual", list, fitness=creator.FitnessMax)
+
+        toolbox = base.Toolbox()
+
+        toolbox.register("attr_bool", random.randint, 0, 1)
+        toolbox.register("individual", tools.initRepeat, creator.Individual, toolbox.attr_bool, n=100)
+        toolbox.register("population", tools.initRepeat, list, toolbox.individual)
+
+        toolbox.register("evaluate", self._eval_evolution_by_loss)
+        toolbox.register("mate", tools.cxTwoPoint)
+        toolbox.register("mutate", tools.mutFlipBit, indpb=0.05)
+        toolbox.register("select", tools.selTournament, tournsize=3)
+
+        population = toolbox.population(n=300)
+
+        NGEN = 40
+        for gen in range(NGEN):
+            offspring = algorithms.varAnd(population, toolbox, cxpb=0.5, mutpb=0.1)
+            fits = toolbox.map(toolbox.evaluate, offspring)
+            for fit, ind in zip(fits, offspring):
+                ind.fitness.values = fit
+            population = toolbox.select(offspring, k=len(population))
+        top10 = tools.selBest(population, k=10)
+        return top10
+
 
 def main():
-    # Config
-    pretrained_model_path = 'model-fashion-mnist.h5'
+    model = Model()
+    model.run()
 
 
 if __name__ == '__main__':
